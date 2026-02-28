@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0a0a0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>VibVal — Vibration Validator</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;600;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --panel: #10111a;
+    --border: #1e2035;
+    --accent: #00ffe0;
+    --accent2: #ff4060;
+    --accent3: #ffe040;
+    --text: #e0e8f0;
+    --muted: #4a5068;
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-display: 'Barlow Condensed', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-display);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+  }
+
+  /* scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    background: var(--panel);
+  }
+
+  header h1 {
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-shadow: 0 0 20px rgba(0,255,224,0.4);
+  }
+
+  header span {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 2px;
+  }
+
+  .status-bar {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 6px 20px;
+    background: rgba(0,255,224,0.04);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 20px;
+    color: var(--muted);
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .status-bar span { color: var(--accent); }
+
+  .main {
+    flex: 1;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* BIG RMS DISPLAY */
+  .rms-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .rms-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+
+  .rms-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .rms-value {
+    font-family: var(--font-mono);
+    font-size: 72px;
+    font-weight: 400;
+    line-height: 1;
+    color: var(--accent);
+    text-shadow: 0 0 30px rgba(0,255,224,0.5);
+    transition: color 0.3s;
+    letter-spacing: -2px;
+  }
+
+  .rms-value.warn { color: var(--accent3); text-shadow: 0 0 30px rgba(255,224,64,0.5); }
+  .rms-value.danger { color: var(--accent2); text-shadow: 0 0 30px rgba(255,64,96,0.5); }
+
+  .rms-unit {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    color: var(--muted);
+    margin-top: 4px;
+    letter-spacing: 2px;
+  }
+
+  /* AXIS CARDS */
+  .axis-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .axis-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px;
+    text-align: center;
+  }
+
+  .axis-title {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .axis-val {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    color: var(--text);
+  }
+
+  .axis-card.x .axis-val { color: #ff6b6b; }
+  .axis-card.y .axis-val { color: #6bffb8; }
+  .axis-card.z .axis-val { color: #6bb8ff; }
+
+  /* CHART */
+  .chart-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+    position: relative;
+  }
+
+  .chart-title {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  canvas#chart {
+    width: 100%;
+    height: 140px;
+    display: block;
+  }
+
+  /* BUTTONS */
+  .btn-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  button {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    padding: 14px;
+    border-radius: 4px;
+    border: 1px solid;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  #btnFreeze {
+    background: transparent;
+    border-color: var(--accent3);
+    color: var(--accent3);
+  }
+
+  #btnFreeze:active, #btnFreeze.active {
+    background: var(--accent3);
+    color: var(--bg);
+  }
+
+  #btnReset {
+    background: transparent;
+    border-color: var(--accent2);
+    color: var(--accent2);
+  }
+
+  #btnReset:active {
+    background: var(--accent2);
+    color: var(--bg);
+  }
+
+  /* PERMISSION / ERROR */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(10,10,15,0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    text-align: center;
+    padding: 32px;
+    gap: 20px;
+  }
+
+  .overlay h2 {
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: 3px;
+    color: var(--accent);
+  }
+
+  .overlay p {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.8;
+    max-width: 300px;
+  }
+
+  .overlay button {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+    padding: 14px 40px;
+    font-size: 16px;
+  }
+
+  .hidden { display: none !important; }
+
+  /* Frozen indicator */
+  .frozen-badge {
+    position: absolute;
+    top: 10px; right: 14px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--accent3);
+    display: none;
+  }
+  .frozen-badge.show { display: block; }
+
+  .note {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--muted);
+    text-align: center;
+    padding: 8px 0 4px;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay">
+  <h2>VIBVAL</h2>
+  <p>Aplikasi validator getaran berbasis IMU HP.<br><br>
+  Membutuhkan akses accelerometer.<br>
+  Tempel HP ke permukaan yang ingin diukur.</p>
+  <button onclick="startApp()">MULAI</button>
+</div>
+
+<header>
+  <h1>VIBVAL</h1>
+  <span>VIBRATION VALIDATOR v1.0</span>
+</header>
+
+<div class="status-bar">
+  FS: <span id="fsVal">—</span> Hz &nbsp;|&nbsp;
+  SENSOR: <span id="sensorType">—</span> &nbsp;|&nbsp;
+  WIN: <span id="winVal">2.0</span> s &nbsp;|&nbsp;
+  SAMPLES: <span id="samplesVal">0</span>
+</div>
+
+<div class="main">
+
+  <div class="rms-card">
+    <div class="frozen-badge" id="frozenBadge">❄ FROZEN</div>
+    <div class="rms-label">VELOCITY RMS</div>
+    <div class="rms-value" id="rmsDisplay">0.00</div>
+    <div class="rms-unit">mm/s</div>
+  </div>
+
+  <div class="axis-row">
+    <div class="axis-card x">
+      <div class="axis-title">VEL-X</div>
+      <div class="axis-val" id="vx">0.00</div>
+    </div>
+    <div class="axis-card y">
+      <div class="axis-title">VEL-Y</div>
+      <div class="axis-val" id="vy">0.00</div>
+    </div>
+    <div class="axis-card z">
+      <div class="axis-title">VEL-Z</div>
+      <div class="axis-val" id="vz">0.00</div>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">RMS TREND — 30s</div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="btn-row">
+    <button id="btnFreeze" onclick="toggleFreeze()">❄ FREEZE</button>
+    <button id="btnReset" onclick="resetAll()">↺ RESET</button>
+  </div>
+
+  <div class="note">
+    ⚠ VALIDATOR / INDIKATOR TREN — BUKAN KALIBRASI RESMI<br>
+    Bandwidth HP terbatas (~100–200 Hz). Tempel rigid ke permukaan.
+  </div>
+
+</div>
+
+<script>
+// ---- Config ----
+const WINDOW_SEC = 2.0;
+const HP_CUTOFF_HZ = 1.0;
+const CHART_HISTORY = 300; // 30 detik @ ~10Hz update
+
+// ---- State ----
+let lastTsNs = 0;
+let lastUpdateMs = 0;
+let gX = 0, gY = 0, gZ = 0;
+const GRAVITY_ALPHA = 0.90;
+let vX = 0, vY = 0, vZ = 0;
+let vHpX = 0, vHpY = 0, vHpZ = 0;
+let vPrevX = 0, vPrevY = 0, vPrevZ = 0;
+let speedBuf = [], timeBufMs = [];
+let speedSqSum = 0;
+let fsHz = 0, dtEma = 0;
+const DT_EMA_ALPHA = 0.05;
+let sensorType = '—';
+let frozen = false;
+let frozenRms = 0;
+let chartData = new Array(CHART_HISTORY).fill(0);
+
+// ---- Chart ----
+const canvas = document.getElementById('chart');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+  canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+}
+
+function drawChart() {
+  const W = canvas.offsetWidth;
+  const H = canvas.offsetHeight;
+  ctx.clearRect(0, 0, W, H);
+
+  const maxVal = Math.max(...chartData, 1);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(30,32,53,1)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = H - (i / 4) * H;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = '#00ffe0';
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = '#00ffe0';
+  ctx.shadowBlur = 6;
+
+  for (let i = 0; i < chartData.length; i++) {
+    const x = (i / (chartData.length - 1)) * W;
+    const y = H - (chartData[i] / maxVal) * (H - 4) - 2;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Fill
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(0,255,224,0.15)');
+  grad.addColorStop(1, 'rgba(0,255,224,0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Max label
+  ctx.fillStyle = 'rgba(74,80,104,0.8)';
+  ctx.font = '9px Share Tech Mono';
+  ctx.fillText(maxVal.toFixed(2) + ' mm/s', 4, 12);
+}
+
+// ---- Sensor ----
+function onSensor(event) {
+  if (frozen) return;
+
+  const tsNs = event.timeStamp * 1e6; // ms → ns approx
+  if (lastTsNs === 0) { lastTsNs = tsNs; return; }
+
+  const dt = (tsNs - lastTsNs) * 1e-9; // seconds
+  lastTsNs = tsNs;
+  if (dt <= 0 || dt > 0.2) return;
+
+  // EMA sampling rate
+  if (dtEma === 0) dtEma = dt;
+  else dtEma = (1 - DT_EMA_ALPHA) * dtEma + DT_EMA_ALPHA * dt;
+  fsHz = 1.0 / Math.max(dtEma, 1e-6);
+
+  let ax, ay, az;
+  if (event.accelerationIncludingGravity && !event.acceleration?.x) {
+    // Raw accelerometer — remove gravity
+    ax = event.accelerationIncludingGravity.x || 0;
+    ay = event.accelerationIncludingGravity.y || 0;
+    az = event.accelerationIncludingGravity.z || 0;
+    gX = GRAVITY_ALPHA * gX + (1 - GRAVITY_ALPHA) * ax;
+    gY = GRAVITY_ALPHA * gY + (1 - GRAVITY_ALPHA) * ay;
+    gZ = GRAVITY_ALPHA * gZ + (1 - GRAVITY_ALPHA) * az;
+    ax -= gX; ay -= gY; az -= gZ;
+    sensorType = 'ACCEL';
+  } else {
+    ax = event.acceleration?.x || 0;
+    ay = event.acceleration?.y || 0;
+    az = event.acceleration?.z || 0;
+    sensorType = 'LINEAR';
+  }
+
+  // Integrate acc → velocity (m/s)
+  vX += ax * dt;
+  vY += ay * dt;
+  vZ += az * dt;
+
+  // High-pass filter on velocity to remove drift
+  const rc = 1.0 / (2 * Math.PI * HP_CUTOFF_HZ);
+  const a = rc / (rc + dt);
+  vHpX = a * (vHpX + vX - vPrevX);
+  vHpY = a * (vHpY + vY - vPrevY);
+  vHpZ = a * (vHpZ + vZ - vPrevZ);
+  vPrevX = vX; vPrevY = vY; vPrevZ = vZ;
+
+  // Speed magnitude mm/s
+  const speedMms = Math.sqrt(vHpX*vHpX + vHpY*vHpY + vHpZ*vHpZ) * 1000;
+
+  // RMS window
+  const nowMs = performance.now();
+  speedBuf.push(speedMms);
+  timeBufMs.push(nowMs);
+  speedSqSum += speedMms * speedMms;
+
+  const cutoff = nowMs - WINDOW_SEC * 1000;
+  while (timeBufMs.length && timeBufMs[0] < cutoff) {
+    const old = speedBuf.shift();
+    timeBufMs.shift();
+    speedSqSum -= old * old;
+  }
+  speedSqSum = Math.max(0, speedSqSum);
+
+  const rms = speedBuf.length > 3 ? Math.sqrt(speedSqSum / speedBuf.length) : 0;
+
+  // UI update ~10 Hz
+  if (nowMs - lastUpdateMs >= 100) {
+    lastUpdateMs = nowMs;
+    updateUI(rms, vHpX * 1000, vHpY * 1000, vHpZ * 1000, speedBuf.length);
+
+    // Chart update
+    chartData.push(rms);
+    if (chartData.length > CHART_HISTORY) chartData.shift();
+    drawChart();
+  }
+}
+
+function updateUI(rms, vx, vy, vz, samples) {
+  const el = document.getElementById('rmsDisplay');
+  el.textContent = rms.toFixed(2);
+  el.className = 'rms-value' + (rms > 15 ? ' danger' : rms > 7 ? ' warn' : '');
+
+  document.getElementById('vx').textContent = Math.abs(vx).toFixed(2);
+  document.getElementById('vy').textContent = Math.abs(vy).toFixed(2);
+  document.getElementById('vz').textContent = Math.abs(vz).toFixed(2);
+  document.getElementById('fsVal').textContent = fsHz.toFixed(0);
+  document.getElementById('sensorType').textContent = sensorType;
+  document.getElementById('samplesVal').textContent = samples;
+}
+
+// ---- Controls ----
+function toggleFreeze() {
+  frozen = !frozen;
+  const btn = document.getElementById('btnFreeze');
+  const badge = document.getElementById('frozenBadge');
+  btn.classList.toggle('active', frozen);
+  badge.classList.toggle('show', frozen);
+}
+
+function resetAll() {
+  frozen = false;
+  document.getElementById('btnFreeze').classList.remove('active');
+  document.getElementById('frozenBadge').classList.remove('show');
+  lastTsNs = 0; lastUpdateMs = 0;
+  gX = gY = gZ = 0;
+  vX = vY = vZ = 0;
+  vHpX = vHpY = vHpZ = 0;
+  vPrevX = vPrevY = vPrevZ = 0;
+  speedBuf = []; timeBufMs = []; speedSqSum = 0;
+  fsHz = 0; dtEma = 0;
+  chartData = new Array(CHART_HISTORY).fill(0);
+  document.getElementById('rmsDisplay').textContent = '0.00';
+  document.getElementById('rmsDisplay').className = 'rms-value';
+  document.getElementById('vx').textContent = '0.00';
+  document.getElementById('vy').textContent = '0.00';
+  document.getElementById('vz').textContent = '0.00';
+  document.getElementById('fsVal').textContent = '—';
+  document.getElementById('samplesVal').textContent = '0';
+  drawChart();
+}
+
+// ---- Start ----
+function startApp() {
+  document.getElementById('overlay').classList.add('hidden');
+  resizeCanvas();
+  drawChart();
+
+  const handler = (e) => onSensor(e);
+
+  if (typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function') {
+    // iOS 13+
+    DeviceMotionEvent.requestPermission().then(state => {
+      if (state === 'granted') window.addEventListener('devicemotion', handler);
+      else alert('Akses sensor ditolak. Coba dari browser Safari.');
+    });
+  } else {
+    window.addEventListener('devicemotion', handler);
+  }
+}
+
+window.addEventListener('resize', () => { resizeCanvas(); drawChart(); });
+</script>
+</body>
+</html>
