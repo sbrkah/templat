@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0a0a0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>VibVal — Vibration Validator</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;600;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f; --panel: #10111a; --border: #1e2035;
+    --accent: #00ffe0; --accent2: #ff4060; --accent3: #ffe040;
+    --text: #e0e8f0; --muted: #4a5068;
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-display: 'Barlow Condensed', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-display); min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; }
+  body::before { content: ''; position: fixed; inset: 0; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px); pointer-events: none; z-index: 100; }
+
+  header { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--panel); flex-shrink: 0; }
+  .header-left { display: flex; align-items: baseline; gap: 10px; }
+  header h1 { font-size: 26px; font-weight: 900; letter-spacing: 4px; text-transform: uppercase; color: var(--accent); text-shadow: 0 0 20px rgba(0,255,224,0.4); }
+  header .ver { font-family: var(--font-mono); font-size: 9px; color: var(--muted); letter-spacing: 2px; }
+
+  .nav-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--panel); flex-shrink: 0; }
+  .nav-tab { flex: 1; padding: 10px; text-align: center; font-family: var(--font-mono); font-size: 10px; letter-spacing: 2px; color: var(--muted); cursor: pointer; border: none; background: transparent; text-transform: uppercase; border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .status-bar { font-family: var(--font-mono); font-size: 10px; padding: 5px 16px; background: rgba(0,255,224,0.03); border-bottom: 1px solid var(--border); display: flex; gap: 16px; color: var(--muted); overflow-x: auto; white-space: nowrap; flex-shrink: 0; }
+  .status-bar span { color: var(--accent); }
+
+  .page { display: none; flex: 1; flex-direction: column; overflow-y: auto; }
+  .page.active { display: flex; }
+
+  .main { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+  .rms-card { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 18px; text-align: center; position: relative; overflow: hidden; }
+  .rms-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); }
+  .rms-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 3px; color: var(--muted); margin-bottom: 6px; }
+  .rms-value { font-family: var(--font-mono); font-size: 68px; font-weight: 400; line-height: 1; color: var(--accent); text-shadow: 0 0 30px rgba(0,255,224,0.5); transition: color 0.3s; letter-spacing: -2px; }
+  .rms-value.warn { color: var(--accent3); text-shadow: 0 0 30px rgba(255,224,64,0.5); }
+  .rms-value.danger { color: var(--accent2); text-shadow: 0 0 30px rgba(255,64,96,0.5); }
+  .rms-unit { font-family: var(--font-mono); font-size: 14px; color: var(--muted); margin-top: 4px; letter-spacing: 2px; }
+  .thresh-bar { margin-top: 10px; height: 4px; border-radius: 2px; background: linear-gradient(90deg, #00ffe0 0%, #ffe040 60%, #ff4060 100%); position: relative; }
+  .thresh-needle { position: absolute; top: -4px; width: 2px; height: 12px; background: white; border-radius: 1px; transform: translateX(-50%); transition: left 0.2s; }
+
+  .axis-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .axis-card { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 10px; text-align: center; }
+  .axis-title { font-family: var(--font-mono); font-size: 9px; letter-spacing: 2px; color: var(--muted); margin-bottom: 4px; }
+  .axis-val { font-family: var(--font-mono); font-size: 18px; }
+  .axis-card.x .axis-val { color: #ff6b6b; }
+  .axis-card.y .axis-val { color: #6bffb8; }
+  .axis-card.z .axis-val { color: #6bb8ff; }
+
+  .chart-card { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 12px; }
+  .chart-title { font-family: var(--font-mono); font-size: 9px; letter-spacing: 2px; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; }
+  canvas#chart { width: 100%; height: 130px; display: block; }
+
+  .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  button { font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: 3px; text-transform: uppercase; padding: 13px; border-radius: 4px; border: 1px solid; cursor: pointer; transition: all 0.15s; background: transparent; }
+  #btnFreeze { border-color: var(--accent3); color: var(--accent3); }
+  #btnFreeze.active { background: var(--accent3); color: var(--bg); }
+  #btnReset { border-color: var(--accent2); color: var(--accent2); }
+  #btnReset:active { background: var(--accent2); color: var(--bg); }
+
+  .frozen-badge { position: absolute; top: 10px; right: 14px; font-family: var(--font-mono); font-size: 9px; letter-spacing: 2px; color: var(--accent3); display: none; }
+  .frozen-badge.show { display: block; }
+  .note { font-family: var(--font-mono); font-size: 9px; color: var(--muted); text-align: center; padding: 6px 0 2px; line-height: 1.6; }
+
+  /* SETTINGS */
+  .settings { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .settings-group { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .settings-group-title { font-family: var(--font-mono); font-size: 9px; letter-spacing: 3px; color: var(--muted); padding: 8px 14px; background: rgba(0,255,224,0.03); border-bottom: 1px solid var(--border); text-transform: uppercase; }
+  .setting-row { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-header { display: flex; justify-content: space-between; align-items: baseline; }
+  .setting-name { font-size: 15px; font-weight: 600; letter-spacing: 1px; color: var(--text); }
+  .setting-val { font-family: var(--font-mono); font-size: 13px; color: var(--accent); min-width: 70px; text-align: right; }
+  .setting-desc { font-family: var(--font-mono); font-size: 9px; color: var(--muted); line-height: 1.5; }
+
+  input[type=range] { width: 100%; height: 4px; border-radius: 2px; -webkit-appearance: none; appearance: none; background: var(--border); outline: none; cursor: pointer; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(0,255,224,0.5); cursor: pointer; }
+  input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: none; cursor: pointer; }
+
+  .toggle { position: relative; width: 44px; height: 24px; display: inline-block; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; inset: 0; border-radius: 12px; background: var(--border); transition: 0.2s; cursor: pointer; }
+  .toggle-slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; bottom: 3px; border-radius: 50%; background: var(--muted); transition: 0.2s; }
+  .toggle input:checked + .toggle-slider { background: rgba(0,255,224,0.3); }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(20px); background: var(--accent); }
+
+  .btn-save { background: var(--accent); border-color: var(--accent); color: var(--bg); font-size: 14px; padding: 14px; width: 100%; letter-spacing: 3px; }
+
+  .saved-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--bg); font-family: var(--font-mono); font-size: 11px; letter-spacing: 2px; padding: 8px 20px; border-radius: 20px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 300; }
+  .saved-toast.show { opacity: 1; }
+
+  .overlay { position: fixed; inset: 0; background: rgba(10,10,15,0.96); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 200; text-align: center; padding: 32px; gap: 20px; }
+  .overlay h2 { font-size: 32px; font-weight: 900; letter-spacing: 4px; color: var(--accent); }
+  .overlay p { font-family: var(--font-mono); font-size: 11px; color: var(--muted); line-height: 1.9; max-width: 300px; }
+  .btn-start { background: var(--accent); border-color: var(--accent); color: var(--bg); padding: 14px 48px; font-size: 16px; letter-spacing: 4px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay">
+  <h2>VIBVAL</h2>
+  <p>Vibration Validator berbasis IMU HP<br><br>
+  Membutuhkan akses accelerometer.<br>
+  Tempel HP rigid ke permukaan yang diukur.<br><br>
+  <span style="color:#4a5068">Wajib HTTPS agar sensor aktif.</span></p>
+  <button class="btn-start" onclick="startApp()">MULAI</button>
+</div>
+
+<header>
+  <div class="header-left"><h1>VIBVAL</h1><span class="ver">v1.1</span></div>
+</header>
+
+<div class="nav-tabs">
+  <button class="nav-tab active" id="tab-monitor" onclick="showPage('monitor')">◈ MONITOR</button>
+  <button class="nav-tab" id="tab-settings" onclick="showPage('settings')">⚙ SETTINGS</button>
+</div>
+
+<div class="status-bar">
+  FS: <span id="fsVal">—</span> Hz &nbsp;|&nbsp;
+  SENSOR: <span id="sensorType">—</span> &nbsp;|&nbsp;
+  HPF: <span id="hpfVal">5.0</span> Hz &nbsp;|&nbsp;
+  WIN: <span id="winValDisplay">2.0</span> s &nbsp;|&nbsp;
+  NOISE: <span id="noiseVal">0.0</span>
+</div>
+
+<!-- MONITOR -->
+<div class="page active" id="page-monitor">
+<div class="main">
+  <div class="rms-card">
+    <div class="frozen-badge" id="frozenBadge">❄ FROZEN</div>
+    <div class="rms-label">VELOCITY RMS</div>
+    <div class="rms-value" id="rmsDisplay">0.00</div>
+    <div class="rms-unit">mm/s</div>
+    <div class="thresh-bar"><div class="thresh-needle" id="needle" style="left:0%"></div></div>
+  </div>
+
+  <div class="axis-row" id="axisRow">
+    <div class="axis-card x"><div class="axis-title">VEL-X</div><div class="axis-val" id="vx">0.00</div></div>
+    <div class="axis-card y"><div class="axis-title">VEL-Y</div><div class="axis-val" id="vy">0.00</div></div>
+    <div class="axis-card z"><div class="axis-title">VEL-Z</div><div class="axis-val" id="vz">0.00</div></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">
+      <span>RMS TREND</span>
+      <span id="chartDurLabel" style="color:var(--muted)">30s</span>
+    </div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="btn-row">
+    <button id="btnFreeze" onclick="toggleFreeze()">❄ FREEZE</button>
+    <button id="btnReset" onclick="resetAll(false)">↺ RESET</button>
+  </div>
+
+  <div class="note">⚠ VALIDATOR / INDIKATOR TREN — BUKAN KALIBRASI RESMI</div>
+</div>
+</div>
+
+<!-- SETTINGS -->
+<div class="page" id="page-settings">
+<div class="settings">
+
+  <div class="settings-group">
+    <div class="settings-group-title">⬡ FILTER</div>
+
+    <div class="setting-row">
+      <div class="setting-header">
+        <span class="setting-name">HP CUTOFF</span>
+        <span class="setting-val" id="lbl-hpf">5.0 Hz</span>
+      </div>
+      <input type="range" id="sl-hpf" min="0.5" max="20" step="0.5" value="5.0" oninput="liveLabel('hpf',this.value,' Hz',1)">
+      <div class="setting-desc">High-pass filter pada velocity untuk buang drift.<br>
+        <b style="color:var(--accent3)">↑ naikan jika HP diam masih baca besar.</b><br>
+        Rekomendasi: 5–10 Hz untuk mesin industri.</div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-header">
+        <span class="setting-name">NOISE FLOOR</span>
+        <span class="setting-val" id="lbl-noise">0.0 mm/s</span>
+      </div>
+      <input type="range" id="sl-noise" min="0" max="5" step="0.1" value="0.0" oninput="liveLabel('noise',this.value,' mm/s',1)">
+      <div class="setting-desc">Dead-zone minimum. Nilai di bawah ini → dianggap 0.<br>
+        <b style="color:var(--accent3)">Set ke 1–2 jika masih noise saat diam.</b></div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-header">
+        <span class="setting-name">GRAVITY ALPHA</span>
+        <span class="setting-val" id="lbl-galpha">0.90</span>
+      </div>
+      <input type="range" id="sl-galpha" min="0.80" max="0.99" step="0.01" value="0.90" oninput="liveLabel('galpha',this.value,'',2)">
+      <div class="setting-desc">Kecepatan estimasi gravity (hanya aktif jika sensor ACCEL).<br>Lebih tinggi = tracking gravity lebih lambat.</div>
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-group-title">⬡ RMS WINDOW</div>
+    <div class="setting-row">
+      <div class="setting-header">
+        <span class="setting-name">WINDOW SIZE</span>
+        <span class="setting-val" id="lbl-win">2.0 s</span>
+      </div>
+      <input type="range" id="sl-win" min="0.5" max="10" step="0.5" value="2.0" oninput="liveLabel('win',this.value,' s',1)">
+      <div class="setting-desc">Durasi buffer RMS. Makin besar = lebih stabil, lebih lambat respons.<br>Rekomendasi: 1–3 s.</div>
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-group-title">⬡ ALARM THRESHOLD</div>
+    <div class="setting-row">
+      <div class="setting-header">
+        <span class="setting-name">WARN LEVEL</span>
+        <span class="setting-val" id="lbl-warn">7.0 mm/s</span>
+      </div>
+      <input type="range" id="sl-warn" min="1" max="24" step="0.5" value="7.0" oninput="liveLabel('warn',this.value,' mm/s',1)">
+      <div class="setting-desc">RMS di atas ini → warna kuning ⚠</div>
+    </div>
+    <div class="setting-row">
+      <div class="setting-header">
+        <span class="setting-name">DANGER LEVEL</span>
+        <span class="setting-val" id="lbl-danger">15.0 mm/s</span>
+      </div>
+      <input type="range" id="sl-danger" min="2" max="25" step="0.5" value="15.0" oninput="liveLabel('danger',this.value,' mm/s',1)">
+      <div class="setting-desc">RMS di atas ini → warna merah ✖ (VTV122 max: 25 mm/s)</div>
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <div class="settings-group-title">⬡ DISPLAY</div>
+    <div class="setting-row">
+      <div class="setting-header">
+        <span class="setting-name">CHART DURATION</span>
+        <span class="setting-val" id="lbl-chartdur">30 s</span>
+      </div>
+      <input type="range" id="sl-chartdur" min="10" max="120" step="10" value="30" oninput="liveLabel('chartdur',this.value,' s',0)">
+      <div class="setting-desc">Panjang history pada grafik trend.</div>
+    </div>
+    <div class="setting-row">
+      <div class="setting-header">
+        <span class="setting-name">TAMPILKAN AXIS</span>
+        <label class="toggle"><input type="checkbox" id="tog-axis" checked><span class="toggle-slider"></span></label>
+      </div>
+      <div class="setting-desc">Tampilkan kartu velocity X/Y/Z di bawah RMS.</div>
+    </div>
+  </div>
+
+  <button class="btn-save" onclick="saveSettings()">✓ SIMPAN & TERAPKAN</button>
+
+</div>
+</div>
+
+<div class="saved-toast" id="savedToast">✓ SETTINGS SAVED</div>
+
+<script>
+let cfg = { hpf:5.0, gAlpha:0.90, noiseFloor:0.0, windowSec:2.0, warnLevel:7.0, dangerLevel:15.0, chartDurSec:30, showAxis:true };
+let CHART_POINTS = 300;
+
+let lastTsNs=0, lastUpdateMs=0;
+let gX=0,gY=0,gZ=0, vX=0,vY=0,vZ=0;
+let vHpX=0,vHpY=0,vHpZ=0, vPrevX=0,vPrevY=0,vPrevZ=0;
+let speedBuf=[],timeBufMs=[],speedSqSum=0;
+let fsHz=0,dtEma=0;
+let sensorType='—', frozen=false;
+let chartData=[];
+
+const canvas=document.getElementById('chart');
+const ctx=canvas.getContext('2d');
+
+function resizeCanvas(){
+  canvas.width=canvas.offsetWidth*devicePixelRatio;
+  canvas.height=canvas.offsetHeight*devicePixelRatio;
+  ctx.scale(devicePixelRatio,devicePixelRatio);
+}
+
+function drawChart(){
+  const W=canvas.offsetWidth,H=canvas.offsetHeight;
+  ctx.clearRect(0,0,W,H);
+  if(!chartData.length)return;
+  const maxVal=Math.max(...chartData,cfg.dangerLevel*1.1,1);
+
+  const drawLine=(val,color)=>{
+    const y=H-(val/maxVal)*(H-4)-2;
+    ctx.strokeStyle=color;ctx.lineWidth=1;ctx.setLineDash([4,4]);
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle=color;ctx.font='8px Share Tech Mono';
+    ctx.fillText(val.toFixed(1),W-34,y-2);
+  };
+
+  ctx.strokeStyle='rgba(30,32,53,1)';ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const y=H-(i/4)*H;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  drawLine(cfg.warnLevel,'rgba(255,224,64,0.5)');
+  drawLine(cfg.dangerLevel,'rgba(255,64,96,0.5)');
+
+  ctx.beginPath();ctx.strokeStyle='#00ffe0';ctx.lineWidth=1.5;
+  ctx.shadowColor='#00ffe0';ctx.shadowBlur=5;
+  for(let i=0;i<chartData.length;i++){
+    const x=(i/(chartData.length-1))*W;
+    const y=H-(chartData[i]/maxVal)*(H-4)-2;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  }
+  ctx.stroke();ctx.shadowBlur=0;
+  ctx.lineTo(W,H);ctx.lineTo(0,H);ctx.closePath();
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'rgba(0,255,224,0.12)');g.addColorStop(1,'rgba(0,255,224,0)');
+  ctx.fillStyle=g;ctx.fill();
+  ctx.fillStyle='rgba(74,80,104,0.9)';ctx.font='9px Share Tech Mono';
+  ctx.fillText(maxVal.toFixed(1)+' mm/s',4,12);
+}
+
+function onSensor(e){
+  if(frozen)return;
+  const tsNs=e.timeStamp*1e6;
+  if(lastTsNs===0){lastTsNs=tsNs;return;}
+  const dt=(tsNs-lastTsNs)*1e-9;
+  lastTsNs=tsNs;
+  if(dt<=0||dt>0.2)return;
+
+  dtEma=dtEma===0?dt:(1-0.05)*dtEma+0.05*dt;
+  fsHz=1/Math.max(dtEma,1e-6);
+
+  let ax,ay,az;
+  const hasLinear=e.acceleration&&e.acceleration.x!==null&&e.acceleration.x!==undefined;
+  if(hasLinear){
+    ax=e.acceleration.x||0;ay=e.acceleration.y||0;az=e.acceleration.z||0;
+    sensorType='LINEAR';
+  } else {
+    ax=e.accelerationIncludingGravity?.x||0;
+    ay=e.accelerationIncludingGravity?.y||0;
+    az=e.accelerationIncludingGravity?.z||0;
+    const ga=cfg.gAlpha;
+    gX=ga*gX+(1-ga)*ax;gY=ga*gY+(1-ga)*ay;gZ=ga*gZ+(1-ga)*az;
+    ax-=gX;ay-=gY;az-=gZ;sensorType='ACCEL';
+  }
+
+  vX+=ax*dt;vY+=ay*dt;vZ+=az*dt;
+  const rc=1/(2*Math.PI*cfg.hpf);
+  const a=rc/(rc+dt);
+  vHpX=a*(vHpX+vX-vPrevX);
+  vHpY=a*(vHpY+vY-vPrevY);
+  vHpZ=a*(vHpZ+vZ-vPrevZ);
+  vPrevX=vX;vPrevY=vY;vPrevZ=vZ;
+
+  let spd=Math.sqrt(vHpX*vHpX+vHpY*vHpY+vHpZ*vHpZ)*1000;
+  if(spd<cfg.noiseFloor)spd=0;
+
+  const now=performance.now();
+  speedBuf.push(spd);timeBufMs.push(now);
+  speedSqSum+=spd*spd;
+  const cutoff=now-cfg.windowSec*1000;
+  while(timeBufMs.length&&timeBufMs[0]<cutoff){
+    const old=speedBuf.shift();timeBufMs.shift();speedSqSum-=old*old;
+  }
+  speedSqSum=Math.max(0,speedSqSum);
+  const rms=speedBuf.length>3?Math.sqrt(speedSqSum/speedBuf.length):0;
+
+  if(now-lastUpdateMs>=100){
+    lastUpdateMs=now;
+    updateUI(rms,vHpX*1000,vHpY*1000,vHpZ*1000);
+    chartData.push(rms);
+    if(chartData.length>CHART_POINTS)chartData.shift();
+    drawChart();
+  }
+}
+
+function updateUI(rms,vx,vy,vz){
+  const el=document.getElementById('rmsDisplay');
+  el.textContent=rms.toFixed(2);
+  el.className='rms-value'+(rms>cfg.dangerLevel?' danger':rms>cfg.warnLevel?' warn':'');
+  document.getElementById('needle').style.left=Math.min(rms/25*100,100)+'%';
+  document.getElementById('vx').textContent=Math.abs(vx).toFixed(2);
+  document.getElementById('vy').textContent=Math.abs(vy).toFixed(2);
+  document.getElementById('vz').textContent=Math.abs(vz).toFixed(2);
+  document.getElementById('fsVal').textContent=fsHz.toFixed(0);
+  document.getElementById('sensorType').textContent=sensorType;
+  document.getElementById('hpfVal').textContent=cfg.hpf.toFixed(1);
+  document.getElementById('noiseVal').textContent=cfg.noiseFloor.toFixed(1);
+}
+
+function liveLabel(key,val,unit,dec){
+  document.getElementById('lbl-'+key).textContent=parseFloat(val).toFixed(dec)+unit;
+}
+
+function saveSettings(){
+  cfg.hpf=parseFloat(document.getElementById('sl-hpf').value);
+  cfg.gAlpha=parseFloat(document.getElementById('sl-galpha').value);
+  cfg.noiseFloor=parseFloat(document.getElementById('sl-noise').value);
+  cfg.windowSec=parseFloat(document.getElementById('sl-win').value);
+  cfg.warnLevel=parseFloat(document.getElementById('sl-warn').value);
+  cfg.dangerLevel=parseFloat(document.getElementById('sl-danger').value);
+  cfg.chartDurSec=parseInt(document.getElementById('sl-chartdur').value);
+  cfg.showAxis=document.getElementById('tog-axis').checked;
+
+  CHART_POINTS=cfg.chartDurSec*10;
+  document.getElementById('winValDisplay').textContent=cfg.windowSec.toFixed(1);
+  document.getElementById('chartDurLabel').textContent=cfg.chartDurSec+'s';
+  document.getElementById('axisRow').style.display=cfg.showAxis?'grid':'none';
+
+  resetAll(true);
+  const t=document.getElementById('savedToast');
+  t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1500);
+  showPage('monitor');
+}
+
+function toggleFreeze(){
+  frozen=!frozen;
+  document.getElementById('btnFreeze').classList.toggle('active',frozen);
+  document.getElementById('frozenBadge').classList.toggle('show',frozen);
+}
+
+function resetAll(keepFrozen){
+  if(!keepFrozen){frozen=false;document.getElementById('btnFreeze').classList.remove('active');document.getElementById('frozenBadge').classList.remove('show');}
+  lastTsNs=0;lastUpdateMs=0;
+  gX=gY=gZ=vX=vY=vZ=vHpX=vHpY=vHpZ=vPrevX=vPrevY=vPrevZ=0;
+  speedBuf=[];timeBufMs=[];speedSqSum=0;fsHz=0;dtEma=0;
+  chartData=new Array(CHART_POINTS).fill(0);
+  document.getElementById('rmsDisplay').textContent='0.00';
+  document.getElementById('rmsDisplay').className='rms-value';
+  document.getElementById('needle').style.left='0%';
+  document.getElementById('vx').textContent='0.00';
+  document.getElementById('vy').textContent='0.00';
+  document.getElementById('vz').textContent='0.00';
+  document.getElementById('fsVal').textContent='—';
+  drawChart();
+}
+
+function showPage(name){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name==='monitor'){resizeCanvas();drawChart();}
+}
+
+function startApp(){
+  document.getElementById('overlay').classList.add('hidden');
+  chartData=new Array(CHART_POINTS).fill(0);
+  resizeCanvas();drawChart();
+  const h=(e)=>onSensor(e);
+  if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
+    DeviceMotionEvent.requestPermission().then(state=>{
+      if(state==='granted')window.addEventListener('devicemotion',h);
+      else{
+        document.getElementById('overlay').classList.remove('hidden');
+        document.querySelector('.overlay p').innerHTML='<span style="color:#ff4060">❌ Akses ditolak.</span><br>Buka via Safari dan izinkan Motion & Orientation.';
+      }
+    }).catch(()=>window.addEventListener('devicemotion',h));
+  } else {
+    window.addEventListener('devicemotion',h);
+  }
+}
+
+window.addEventListener('resize',()=>{resizeCanvas();drawChart();});
+</script>
+</body>
+</html>
