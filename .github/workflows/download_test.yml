@@ -1,0 +1,288 @@
+name: Download Load Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "URL file target"
+        required: true
+        default: "https://example.com/yourfile.zip"
+      num_users:
+        description: "Jumlah user simultan"
+        required: true
+        default: "10"
+      timeout_seconds:
+        description: "Batas waktu tiap download (detik)"
+        required: true
+        default: "60"
+      save_files:
+        description: "Simpan file hasil download? (true/false)"
+        required: true
+        default: "false"
+
+jobs:
+  load-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests matplotlib
+
+      - name: Show runner location info
+        run: |
+          echo "=== Runner (AKU) ==="
+          curl -s https://ipinfo.io | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          print(f\"  IP       : {d.get('ip', 'N/A')}\")
+          print(f\"  City     : {d.get('city', 'N/A')}\")
+          print(f\"  Region   : {d.get('region', 'N/A')}\")
+          print(f\"  Country  : {d.get('country', 'N/A')}\")
+          print(f\"  Org      : {d.get('org', 'N/A')}\")
+          "
+
+      - name: Show target location info
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+        run: |
+          echo "=== Target (CDN) ==="
+          python3 - <<'EOF'
+          import os, socket, json, urllib.request, urllib.parse
+
+          url = os.environ["TARGET_URL"]
+          parsed = urllib.parse.urlparse(url)
+          hostname = parsed.hostname
+
+          print(f"  URL      : {url}")
+          print(f"  Hostname : {hostname}")
+
+          # Resolve semua IP (CDN bisa punya banyak)
+          try:
+              infos = socket.getaddrinfo(hostname, None)
+              ips = list(dict.fromkeys(i[4][0] for i in infos))  # deduplicate
+              print(f"  Resolved : {', '.join(ips)}")
+          except Exception as e:
+              ips = []
+              print(f"  Resolved : gagal ({e})")
+
+          # Lookup lokasi IP pertama
+          if ips:
+              try:
+                  with urllib.request.urlopen(f"https://ipinfo.io/{ips[0]}/json", timeout=5) as r:
+                      d = json.loads(r.read())
+                  print(f"  IP       : {d.get('ip', 'N/A')}")
+                  print(f"  City     : {d.get('city', 'N/A')}")
+                  print(f"  Region   : {d.get('region', 'N/A')}")
+                  print(f"  Country  : {d.get('country', 'N/A')}")
+                  print(f"  Org      : {d.get('org', 'N/A')}")
+                  if "loc" in d:
+                      print(f"  Coords   : {d['loc']}")
+              except Exception as e:
+                  print(f"  Lokasi   : gagal lookup ({e})")
+
+          # Ukur latency ke target (ping via TCP)
+          import time
+          if ips:
+              port = 443 if parsed.scheme == "https" else 80
+              try:
+                  times = []
+                  for _ in range(3):
+                      t0 = time.perf_counter()
+                      s = socket.create_connection((hostname, port), timeout=5)
+                      t1 = time.perf_counter()
+                      s.close()
+                      times.append((t1 - t0) * 1000)
+                  print(f"  TCP RTT  : {min(times):.1f} ms (min) / {sum(times)/len(times):.1f} ms (avg)  [3 samples]")
+              except Exception as e:
+                  print(f"  TCP RTT  : gagal ({e})")
+          EOF
+
+      - name: Run load test
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          NUM_USERS: ${{ github.event.inputs.num_users }}
+          TIMEOUT_SECONDS: ${{ github.event.inputs.timeout_seconds }}
+          SAVE_FILES: ${{ github.event.inputs.save_files }}
+        run: |
+          python3 - <<'EOF'
+          import os, time, threading, requests
+          from dataclasses import dataclass, field
+          from typing import Optional
+
+          # ── CONFIG dari environment ────────────────────────────────────────────
+          TARGET_URL      = os.environ["TARGET_URL"]
+          NUM_USERS       = int(os.environ["NUM_USERS"])
+          TIMEOUT_SECONDS = int(os.environ["TIMEOUT_SECONDS"])
+          CHUNK_SIZE      = 1024 * 64
+          SAVE_FILES      = os.environ["SAVE_FILES"].lower() == "true"
+          OUTPUT_DIR      = "/tmp/dl_test"
+
+          if SAVE_FILES:
+              os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+          print(f"  Target  : {TARGET_URL}")
+          print(f"  Users   : {NUM_USERS}")
+          print(f"  Timeout : {TIMEOUT_SECONDS}s")
+          print(f"  Save    : {SAVE_FILES}")
+
+          # ── Data container per worker ──────────────────────────────────────────
+          @dataclass
+          class WorkerResult:
+              user_id       : int
+              success       : bool          = False
+              bytes_received: int           = 0
+              duration_s    : float         = 0.0
+              speed_mbps    : float         = 0.0
+              status_code   : Optional[int] = None
+              error         : str           = ""
+              start_time    : float         = field(default_factory=time.time)
+
+          # ── Worker function ────────────────────────────────────────────────────
+          def download_worker(user_id, results, lock, barrier):
+              result = WorkerResult(user_id=user_id)
+              barrier.wait()
+              result.start_time = time.perf_counter()
+              try:
+                  headers = {"User-Agent": f"LoadTestClient/1.0 (user-{user_id:03d})"}
+                  with requests.get(TARGET_URL, stream=True, timeout=TIMEOUT_SECONDS, headers=headers) as resp:
+                      result.status_code = resp.status_code
+                      resp.raise_for_status()
+                      save_path = os.path.join(OUTPUT_DIR, f"user_{user_id:03d}_download") if SAVE_FILES else None
+                      fh = open(save_path, "wb") if save_path else None
+                      try:
+                          for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
+                              if chunk:
+                                  result.bytes_received += len(chunk)
+                                  if fh:
+                                      fh.write(chunk)
+                      finally:
+                          if fh:
+                              fh.close()
+                  result.success = True
+              except requests.exceptions.Timeout:
+                  result.error = f"Timeout after {TIMEOUT_SECONDS}s"
+              except requests.exceptions.HTTPError as e:
+                  result.error = f"HTTP {result.status_code}: {e}"
+              except Exception as e:
+                  result.error = str(e)
+              finally:
+                  result.duration_s = time.perf_counter() - result.start_time
+                  if result.duration_s > 0 and result.bytes_received > 0:
+                      result.speed_mbps = (result.bytes_received * 8) / (result.duration_s * 1_000_000)
+                  with lock:
+                      results.append(result)
+                      status = "✅" if result.success else "❌"
+                      size_mb = result.bytes_received / 1_048_576
+                      msg = f"{result.speed_mbps:.2f} Mbps | {size_mb:.2f} MB | {result.duration_s:.2f}s"
+                      err = f" [{result.error}]" if result.error else ""
+                      print(f"  User {user_id:>3} {status}  {msg}{err}")
+
+          # ── Run test ───────────────────────────────────────────────────────────
+          print("\n" + "="*60)
+          print(f" 🚦 Starting load test: {NUM_USERS} simultaneous users")
+          print("="*60)
+
+          results = []
+          lock    = threading.Lock()
+          barrier = threading.Barrier(NUM_USERS)
+
+          threads = [
+              threading.Thread(target=download_worker, args=(i+1, results, lock, barrier), daemon=True)
+              for i in range(NUM_USERS)
+          ]
+
+          wall_start = time.perf_counter()
+          for t in threads:
+              t.start()
+          for t in threads:
+              t.join(timeout=TIMEOUT_SECONDS + 10)
+          wall_elapsed = time.perf_counter() - wall_start
+
+          print("="*60)
+          print(f" ⏱️  Wall-clock total : {wall_elapsed:.2f}s")
+          print("="*60)
+
+          # ── Summary ────────────────────────────────────────────────────────────
+          ok     = [r for r in results if r.success]
+          failed = [r for r in results if not r.success]
+
+          total_bytes     = sum(r.bytes_received for r in ok)
+          avg_speed       = sum(r.speed_mbps for r in ok) / len(ok) if ok else 0
+          max_speed       = max(r.speed_mbps for r in ok)            if ok else 0
+          min_speed       = min(r.speed_mbps for r in ok)            if ok else 0
+          avg_dur         = sum(r.duration_s  for r in ok) / len(ok) if ok else 0
+          max_dur         = max(r.duration_s  for r in ok)            if ok else 0
+          agg_throughput  = (total_bytes * 8) / (wall_elapsed * 1_000_000)
+
+          print("\n" + "="*60)
+          print(" 📊  SUMMARY")
+          print("="*60)
+          print(f"  Target URL        : {TARGET_URL}")
+          print(f"  Users (concurrent): {NUM_USERS}")
+          print(f"  Successful        : {len(ok)} / {NUM_USERS}")
+          print(f"  Failed            : {len(failed)}")
+          if failed:
+              for r in failed:
+                  print(f"    - User {r.user_id}: {r.error}")
+          if ok:
+              file_mb = ok[0].bytes_received / 1_048_576
+              print(f"\n  File size (est.)  : {file_mb:.2f} MB")
+              print(f"  Total downloaded  : {total_bytes/1_048_576:.2f} MB")
+              print(f"\n  Per-user speed    :")
+              print(f"    avg  : {avg_speed:.2f} Mbps")
+              print(f"    max  : {max_speed:.2f} Mbps")
+              print(f"    min  : {min_speed:.2f} Mbps")
+              print(f"\n  Aggregate throughput : {agg_throughput:.2f} Mbps")
+              print(f"\n  Per-user duration :")
+              print(f"    avg  : {avg_dur:.2f}s")
+              print(f"    max  : {max_dur:.2f}s")
+              print(f"  Wall-clock elapsed   : {wall_elapsed:.2f}s")
+          print("="*60)
+
+          # ── Plot ───────────────────────────────────────────────────────────────
+          if ok:
+              import matplotlib
+              matplotlib.use("Agg")
+              import matplotlib.pyplot as plt
+
+              ids    = [r.user_id    for r in sorted(ok, key=lambda x: x.user_id)]
+              speeds = [r.speed_mbps for r in sorted(ok, key=lambda x: x.user_id)]
+              durs   = [r.duration_s for r in sorted(ok, key=lambda x: x.user_id)]
+
+              fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+
+              ax1.bar(ids, speeds, color="steelblue", edgecolor="white")
+              ax1.axhline(avg_speed, color="orange", linestyle="--", label=f"avg {avg_speed:.1f} Mbps")
+              ax1.set_title("Speed per User (Mbps)")
+              ax1.set_xlabel("User ID")
+              ax1.set_ylabel("Mbps")
+              ax1.legend()
+
+              ax2.bar(ids, durs, color="coral", edgecolor="white")
+              ax2.axhline(avg_dur, color="orange", linestyle="--", label=f"avg {avg_dur:.1f}s")
+              ax2.set_title("Duration per User (s)")
+              ax2.set_xlabel("User ID")
+              ax2.set_ylabel("Seconds")
+              ax2.legend()
+
+              fig.suptitle(f"Load Test: {NUM_USERS} concurrent users | {TARGET_URL[:60]}", fontsize=10)
+              plt.tight_layout()
+              plt.savefig("dl_test_chart.png", dpi=120)
+              print("\nChart saved → dl_test_chart.png (lihat di Artifacts)")
+          EOF
+
+      - name: Upload chart as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-chart
+          path: dl_test_chart.png
+          if-no-files-found: ignore
